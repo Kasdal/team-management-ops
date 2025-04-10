@@ -15,13 +15,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         
-      # Add GitHub App authentication
+      # Add GitHub App authentication with explicit installation ID
       - name: Generate token
         id: generate_token
-        uses: tibdex/github-app-token@v1
+        uses: tibdex/github-app-token@v2 # Updated to v2
         with:
           app_id: ${{ secrets.APP_ID }}
           private_key: ${{ secrets.APP_PRIVATE_KEY }}
+          # If you know your installation ID, uncomment and add it:
+          # installation_id: ${{ secrets.APP_INSTALLATION_ID }}
+          repositories: >-
+            ["team-management-ops"]
+          permissions: >-
+            {"contents": "write", "issues": "write", "organization_administration": "write", "organization_teams": "write"}
           
       - name: Parse issue body
         id: parse
@@ -106,6 +112,16 @@ jobs:
           git add teamDB/
           git commit -m "Add team data for ${{ steps.parse.outputs.APPLICATION_ID }}"
           git push
+      
+      # Add debugging step to check token
+      - name: Debug token
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+        run: |
+          echo "Token generated successfully"
+          echo "Testing org access..."
+          # Test if the token has organization access (without showing sensitive info)
+          curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" https://api.github.com/orgs/KasdalOrg
       
       - name: Create and manage GitHub teams
         id: manage-teams
@@ -198,6 +214,7 @@ jobs:
                 console.log(`Successfully set ${permission} permission for team ${teamSlug} on repo ${owner}/${repo}`);
               } catch (error) {
                 console.log(`Error setting repo permissions: ${error.message}`);
+                console.log(error);
               }
             }
             
