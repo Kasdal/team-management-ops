@@ -15,7 +15,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         
-      # Using PAT for authentication (temporary until GitHub App auth is fixed)
+      # Add GitHub App authentication using official GitHub action
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          
       - name: Parse issue body
         id: parse
         run: |
@@ -100,12 +107,22 @@ jobs:
           git commit -m "Add team data for ${{ steps.parse.outputs.APPLICATION_ID }}"
           git push
       
+      # Add debugging step to check token
+      - name: Debug token
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          echo "Token generated successfully"
+          echo "Testing org access..."
+          # Test if the token has organization access (without showing sensitive info)
+          curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" https://api.github.com/orgs/KasdalOrg
+      
       - name: Create and manage GitHub teams
         id: manage-teams
         uses: actions/github-script@v6
         with:
-          # Use PAT temporarily instead of GitHub App token
-          github-token: ${{ secrets.ORG_ADMIN_TOKEN }}
+          # Use the GitHub App token
+          github-token: ${{ steps.generate-token.outputs.token }}
           script: |
             const appId = '${{ steps.parse.outputs.APPLICATION_ID }}';
             const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
@@ -258,8 +275,8 @@ jobs:
       - name: Add comment to issue
         uses: actions/github-script@v6
         with:
-          # Use PAT for commenting
-          github-token: ${{ secrets.ORG_ADMIN_TOKEN }}
+          # Use the GitHub App token here as well
+          github-token: ${{ steps.generate-token.outputs.token }}
           script: |
             const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
             const subTeamName = '${{ steps.parse.outputs.SUB_TEAM }}';
