@@ -1,0 +1,90 @@
+name: Team Management Request
+description: Request to create a new team or modify an existing team and set repository permissions
+title: "[TEAM]: "
+labels:
+  - team-management
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Team Management Request
+        Use this form to request creation of a new team or modifications to existing teams, including repository permissions.
+  - type: input
+    id: application_id
+    attributes:
+      label: Application ID
+      description: Unique identifier for the application
+      placeholder: APP-123
+    validations:
+      required: true
+  - type: dropdown
+    id: application_tier
+    attributes:
+      label: Application Tier
+      description: Select the application tier
+      options:
+        - Tier1
+        - Tier2
+        - Tier3
+    validations:
+      required: true
+  - type: input
+    id: team_name
+    attributes:
+      label: Team Name
+      description: Name of the team to create or modify
+      placeholder: frontend-developers
+    validations:
+      required: true
+  - type: textarea
+    id: team_members
+    attributes:
+      label: Team Members
+      description: List GitHub usernames for team members (one per line)
+      placeholder: |
+        Kasdal
+        user2
+        user3
+    validations:
+      required: true
+  - type: input
+    id: sub_team
+    attributes:
+      label: Sub-Team Name (optional)
+      description: Name of sub-team to create (leave blank if not needed)
+      placeholder: frontend-admins
+    validations:
+      required: false
+  - type: textarea
+    id: sub_team_members
+    attributes:
+      label: Sub-Team Members (optional)
+      description: List GitHub usernames for sub-team members (one per line)
+      placeholder: |
+        Kasdal
+        user2
+    validations:
+      required: false
+  - type: dropdown
+    id: team_permission_level
+    attributes:
+      label: Team Permission Level
+      description: Permission level for the team on associated repositories
+      options:
+        - admin
+        - maintain
+        - write
+        - triage
+        - read
+    validations:
+      required: true
+  - type: textarea
+    id: repo_assets
+    attributes:
+      label: Repository Assets
+      description: List repositories that this team should have access to (one per line)
+      placeholder: |
+        KasdalOrg/repo1
+        KasdalOrg/repo2
+    validations:
+      required: true
