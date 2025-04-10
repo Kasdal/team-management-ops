@@ -23,50 +23,63 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           
-      - name: Parse issue body
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          
+      - name: Install @github/issue-parser
+        run: npm install @github/issue-parser
+          
+      - name: Parse issue body with issue-parser
         id: parse
-        run: |
-          # Save issue body to a file for processing
-          echo '${{ github.event.issue.body }}' > issue_body.txt
-          
-          # Parse fields from issue body
-          APPLICATION_ID=$(grep -A 2 "### Application ID" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
-          echo "APPLICATION_ID=${APPLICATION_ID}" >> $GITHUB_OUTPUT
-          
-          APPLICATION_TIER=$(grep -A 2 "### Application Tier" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
-          echo "APPLICATION_TIER=${APPLICATION_TIER}" >> $GITHUB_OUTPUT
-          
-          TEAM_NAME=$(grep -A 2 "### Team Name" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
-          echo "TEAM_NAME=${TEAM_NAME}" >> $GITHUB_OUTPUT
-          
-          # Extract team members and convert to array format
-          TEAM_MEMBERS=$(grep -A 10 "### Team Members" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
-          echo "TEAM_MEMBERS=${TEAM_MEMBERS}" >> $GITHUB_OUTPUT
-          
-          SUB_TEAM=$(grep -A 2 "### Sub-Team Name" issue_body.txt | tail -n 1 | xargs || echo "")
-          echo "SUB_TEAM=${SUB_TEAM}" >> $GITHUB_OUTPUT
-          
-          # Extract sub-team members and convert to array format
-          SUB_TEAM_MEMBERS=$(grep -A 10 "### Sub-Team Members" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
-          echo "SUB_TEAM_MEMBERS=${SUB_TEAM_MEMBERS}" >> $GITHUB_OUTPUT
-          
-          PERMISSION_LEVEL=$(grep -A 2 "### Team Permission Level" issue_body.txt | tail -n 1 | xargs || echo "read")
-          echo "PERMISSION_LEVEL=${PERMISSION_LEVEL}" >> $GITHUB_OUTPUT
-          
-          # Extract repositories and convert to array format
-          REPO_ASSETS=$(grep -A 10 "### Repository Assets" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
-          echo "REPO_ASSETS=${REPO_ASSETS}" >> $GITHUB_OUTPUT
-          
-          # For debugging
-          echo "Parsed fields:"
-          echo "Application ID: $APPLICATION_ID"
-          echo "Application Tier: $APPLICATION_TIER"
-          echo "Team Name: $TEAM_NAME"
-          echo "Team Members: $TEAM_MEMBERS"
-          echo "Sub-Team: $SUB_TEAM"
-          echo "Sub-Team Members: $SUB_TEAM_MEMBERS"
-          echo "Permission Level: $PERMISSION_LEVEL"
-          echo "Repository Assets: $REPO_ASSETS"
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { parseIssue } = require('@github/issue-parser');
+            
+            const issueBody = context.payload.issue.body;
+            console.log("Raw issue body:", issueBody);
+            
+            // Parse the issue body using @github/issue-parser
+            const parsedIssue = parseIssue(issueBody);
+            console.log("Parsed issue:", JSON.stringify(parsedIssue, null, 2));
+            
+            // Extract the fields we need
+            const applicationId = parsedIssue['Application ID'] || 'Unknown';
+            const applicationTier = parsedIssue['Application Tier'] || 'Unknown';
+            const teamName = parsedIssue['Team Name'] || 'Unknown';
+            const teamMembers = (parsedIssue['Team Members'] || '').split('\n').filter(member => member.trim().length > 0);
+            const subTeam = parsedIssue['Sub-Team Name (optional)'] || '';
+            const subTeamMembers = (parsedIssue['Sub-Team Members (optional)'] || '').split('\n').filter(member => member.trim().length > 0);
+            const permissionLevel = parsedIssue['Team Permission Level'] || 'read';
+            const repoAssets = (parsedIssue['Repository Assets'] || '').split('\n').filter(repo => repo.trim().length > 0);
+            
+            // Format as JSON arrays for output
+            const teamMembersJson = JSON.stringify(teamMembers);
+            const subTeamMembersJson = JSON.stringify(subTeamMembers);
+            const repoAssetsJson = JSON.stringify(repoAssets);
+            
+            // Set outputs
+            core.setOutput('APPLICATION_ID', applicationId);
+            core.setOutput('APPLICATION_TIER', applicationTier);
+            core.setOutput('TEAM_NAME', teamName);
+            core.setOutput('TEAM_MEMBERS', teamMembersJson);
+            core.setOutput('SUB_TEAM', subTeam);
+            core.setOutput('SUB_TEAM_MEMBERS', subTeamMembersJson);
+            core.setOutput('PERMISSION_LEVEL', permissionLevel);
+            core.setOutput('REPO_ASSETS', repoAssetsJson);
+            
+            // For debugging
+            console.log("Parsed fields:");
+            console.log("Application ID:", applicationId);
+            console.log("Application Tier:", applicationTier);
+            console.log("Team Name:", teamName);
+            console.log("Team Members:", teamMembersJson);
+            console.log("Sub-Team:", subTeam);
+            console.log("Sub-Team Members:", subTeamMembersJson);
+            console.log("Permission Level:", permissionLevel);
+            console.log("Repository Assets:", repoAssetsJson);
       
       - name: Create team data JSON
         id: create-json
@@ -126,11 +139,11 @@ jobs:
           script: |
             const appId = '${{ steps.parse.outputs.APPLICATION_ID }}';
             const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
-            const teamMembers = ${{ steps.parse.outputs.TEAM_MEMBERS }};
+            const teamMembers = JSON.parse('${{ steps.parse.outputs.TEAM_MEMBERS }}');
             const subTeamName = '${{ steps.parse.outputs.SUB_TEAM }}';
-            const subTeamMembers = ${{ steps.parse.outputs.SUB_TEAM_MEMBERS }};
+            const subTeamMembers = JSON.parse('${{ steps.parse.outputs.SUB_TEAM_MEMBERS }}');
             const permissionLevel = '${{ steps.parse.outputs.PERMISSION_LEVEL }}';
-            const repoAssets = ${{ steps.parse.outputs.REPO_ASSETS }};
+            const repoAssets = JSON.parse('${{ steps.parse.outputs.REPO_ASSETS }}');
             
             const orgName = 'KasdalOrg'; // Your organization name
             
