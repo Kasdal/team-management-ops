@@ -1,0 +1,1 @@
+This folder stores JSON files with team data generated from issue submissions.
