@@ -1,0 +1,262 @@
+name: Team Management Workflow
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  process-team-request:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.labels.*.name, 'team-management')
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Parse issue body
+        id: parse
+        run: |
+          # Save issue body to a file for processing
+          echo '${{ github.event.issue.body }}' > issue_body.txt
+          
+          # Parse fields from issue body
+          APPLICATION_ID=$(grep -A 2 "### Application ID" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
+          echo "APPLICATION_ID=$APPLICATION_ID" >> $GITHUB_OUTPUT
+          
+          APPLICATION_TIER=$(grep -A 2 "### Application Tier" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
+          echo "APPLICATION_TIER=$APPLICATION_TIER" >> $GITHUB_OUTPUT
+          
+          TEAM_NAME=$(grep -A 2 "### Team Name" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
+          echo "TEAM_NAME=$TEAM_NAME" >> $GITHUB_OUTPUT
+          
+          # Extract team members and convert to array format
+          TEAM_MEMBERS=$(grep -A 10 "### Team Members" issue_body.txt | tail -n +2 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
+          echo "TEAM_MEMBERS=$TEAM_MEMBERS" >> $GITHUB_OUTPUT
+          
+          SUB_TEAM=$(grep -A 2 "### Sub-Team Name" issue_body.txt | tail -n 1 | xargs || echo "")
+          echo "SUB_TEAM=$SUB_TEAM" >> $GITHUB_OUTPUT
+          
+          # Extract sub-team members and convert to array format
+          SUB_TEAM_MEMBERS=$(grep -A 10 "### Sub-Team Members" issue_body.txt | tail -n +2 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
+          echo "SUB_TEAM_MEMBERS=$SUB_TEAM_MEMBERS" >> $GITHUB_OUTPUT
+          
+          PERMISSION_LEVEL=$(grep -A 2 "### Team Permission Level" issue_body.txt | tail -n 1 | xargs || echo "read")
+          echo "PERMISSION_LEVEL=$PERMISSION_LEVEL" >> $GITHUB_OUTPUT
+          
+          # Extract repositories and convert to array format
+          REPO_ASSETS=$(grep -A 10 "### Repository Assets" issue_body.txt | tail -n +2 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
+          echo "REPO_ASSETS=$REPO_ASSETS" >> $GITHUB_OUTPUT
+          
+          # For debugging
+          echo "Parsed fields:"
+          echo "Application ID: $APPLICATION_ID"
+          echo "Application Tier: $APPLICATION_TIER"
+          echo "Team Name: $TEAM_NAME"
+          echo "Team Members: $TEAM_MEMBERS"
+          echo "Sub-Team: $SUB_TEAM"
+          echo "Sub-Team Members: $SUB_TEAM_MEMBERS"
+          echo "Permission Level: $PERMISSION_LEVEL"
+          echo "Repository Assets: $REPO_ASSETS"
+      
+      - name: Create team data JSON
+        id: create-json
+        run: |
+          # Create JSON with team information
+          cat << EOF > team_data.json
+          {
+            "application_id": "${{ steps.parse.outputs.APPLICATION_ID }}",
+            "application_tier": "${{ steps.parse.outputs.APPLICATION_TIER }}",
+            "team_name": "${{ steps.parse.outputs.TEAM_NAME }}",
+            "team_members": ${{ steps.parse.outputs.TEAM_MEMBERS }},
+            "sub_team": "${{ steps.parse.outputs.SUB_TEAM }}",
+            "sub_team_members": ${{ steps.parse.outputs.SUB_TEAM_MEMBERS }},
+            "permission_level": "${{ steps.parse.outputs.PERMISSION_LEVEL }}",
+            "repo_assets": ${{ steps.parse.outputs.REPO_ASSETS }},
+            "created_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "issue_number": "${{ github.event.issue.number }}"
+          }
+          EOF
+          
+          # Create filename using application ID and timestamp
+          TIMESTAMP=$(date +%s)
+          FILENAME="${{ steps.parse.outputs.APPLICATION_ID }}_${TIMESTAMP}.json"
+          echo "FILENAME=$FILENAME" >> $GITHUB_OUTPUT
+          
+          # Save JSON to teamDB folder
+          mkdir -p teamDB
+          cp team_data.json "teamDB/$FILENAME"
+          
+          # View contents for verification
+          cat "teamDB/$FILENAME"
+      
+      - name: Commit team data to repository
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add teamDB/
+          git commit -m "Add team data for ${{ steps.parse.outputs.APPLICATION_ID }}"
+          git push
+      
+      - name: Create and manage GitHub teams
+        id: manage-teams
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const appId = '${{ steps.parse.outputs.APPLICATION_ID }}';
+            const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
+            const teamMembers = ${{ steps.parse.outputs.TEAM_MEMBERS }};
+            const subTeamName = '${{ steps.parse.outputs.SUB_TEAM }}';
+            const subTeamMembers = ${{ steps.parse.outputs.SUB_TEAM_MEMBERS }};
+            const permissionLevel = '${{ steps.parse.outputs.PERMISSION_LEVEL }}';
+            const repoAssets = ${{ steps.parse.outputs.REPO_ASSETS }};
+            
+            const orgName = 'KasdalOrg'; // Replace with your org name
+            
+            // Function to create a team
+            async function createTeam(name, description) {
+              try {
+                console.log(`Creating team ${name}...`);
+                const response = await github.rest.teams.create({
+                  org: orgName,
+                  name: name,
+                  description: description,
+                  privacy: 'closed'
+                });
+                return response.data;
+              } catch (error) {
+                console.log(`Error creating team ${name}: ${error.message}`);
+                // Check if team already exists
+                if (error.status === 422) {
+                  console.log(`Team ${name} might already exist, attempting to fetch...`);
+                  try {
+                    const teams = await github.rest.teams.list({
+                      org: orgName
+                    });
+                    const existingTeam = teams.data.find(team => team.name === name);
+                    if (existingTeam) {
+                      return existingTeam;
+                    }
+                  } catch (e) {
+                    console.log(`Failed to fetch existing teams: ${e.message}`);
+                  }
+                }
+                throw error;
+              }
+            }
+            
+            // Function to add members to a team
+            async function addTeamMembers(teamSlug, members) {
+              for (const username of members) {
+                try {
+                  console.log(`Adding ${username} to team ${teamSlug}...`);
+                  await github.rest.teams.addOrUpdateMembershipForUserInOrg({
+                    org: orgName,
+                    team_slug: teamSlug,
+                    username: username,
+                    role: 'member'
+                  });
+                } catch (error) {
+                  console.log(`Error adding ${username} to team: ${error.message}`);
+                }
+              }
+            }
+            
+            // Function to set repository permissions for a team
+            async function setRepoPermissions(teamSlug, repoName, permission) {
+              try {
+                console.log(`Setting ${permission} permission for team ${teamSlug} on repo ${repoName}...`);
+                await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
+                  org: orgName,
+                  team_slug: teamSlug,
+                  owner: repoName.split('/')[0] || orgName,
+                  repo: repoName.split('/')[1] || repoName,
+                  permission: permission
+                });
+              } catch (error) {
+                console.log(`Error setting repo permissions: ${error.message}`);
+              }
+            }
+            
+            // Main execution
+            try {
+              // Create main team
+              const teamDescription = `Team for ${appId} (${teamName})`;
+              const team = await createTeam(teamName, teamDescription);
+              
+              // Add members to main team
+              await addTeamMembers(team.slug, teamMembers);
+              
+              // Create sub-team if provided
+              let subTeam = null;
+              if (subTeamName && subTeamName.trim() !== '') {
+                const subTeamDescription = `Sub-team for ${appId} (${subTeamName})`;
+                subTeam = await createTeam(subTeamName, subTeamDescription);
+                
+                // Add members to sub-team
+                if (subTeamMembers && subTeamMembers.length > 0) {
+                  await addTeamMembers(subTeam.slug, subTeamMembers);
+                }
+                
+                // Set parent team (if API supports it)
+                try {
+                  console.log(`Setting ${teamName} as parent team for ${subTeamName}...`);
+                  await github.rest.teams.updateInOrg({
+                    org: orgName,
+                    team_slug: subTeam.slug,
+                    parent_team_id: team.id
+                  });
+                } catch (error) {
+                  console.log(`Error setting parent team: ${error.message}`);
+                }
+              }
+              
+              // Set repository permissions for team
+              for (const repo of repoAssets) {
+                await setRepoPermissions(team.slug, repo, permissionLevel);
+                
+                // Also set for sub-team if it exists
+                if (subTeam) {
+                  await setRepoPermissions(subTeam.slug, repo, permissionLevel);
+                }
+              }
+              
+              return {
+                teamId: team.id,
+                teamSlug: team.slug,
+                subTeamId: subTeam ? subTeam.id : null,
+                subTeamSlug: subTeam ? subTeam.slug : null
+              };
+            } catch (error) {
+              console.log(`Main execution error: ${error.message}`);
+              core.setFailed(`Failed to process team request: ${error.message}`);
+            }
+      
+      - name: Add comment to issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
+            const subTeamName = '${{ steps.parse.outputs.SUB_TEAM }}';
+            const filename = '${{ steps.create-json.outputs.FILENAME }}';
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## Team Management Request Processed ✅
+              
+              Your team management request has been processed. Here's a summary:
+              
+              - Team **${teamName}** has been created or updated
+              ${subTeamName ? `- Sub-team **${subTeamName}** has been created or updated` : ''}
+              - Team data saved to \`teamDB/${filename}\`
+              - Repository permissions have been set according to your request
+              
+              You can verify the teams and their members in the [KasdalOrg Teams page](https://github.com/orgs/KasdalOrg/teams).
+              
+              Thank you for using Team Management Ops!`
+            });
