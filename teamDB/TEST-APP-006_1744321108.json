@@ -1,0 +1,12 @@
+{
+  "application_id": "TEST-APP-006",
+  "application_tier": "Tier2",
+  "team_name": "test-app-parser-team",
+  "team_members": ["Kasdal"],
+  "sub_team": "test-app-parser-admins",
+  "sub_team_members": ["Kasdal"],
+  "permission_level": "write",
+  "repo_assets": ["KasdalOrg/test-repo"],
+  "created_at": "2025-04-10T21:38:28Z",
+  "issue_number": "9"
+}
