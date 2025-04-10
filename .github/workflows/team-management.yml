@@ -15,6 +15,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         
+      # Add GitHub App authentication
+      - name: Generate token
+        id: generate_token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
+          
       - name: Parse issue body
         id: parse
         run: |
@@ -103,8 +111,8 @@ jobs:
         id: manage-teams
         uses: actions/github-script@v6
         with:
-          # Use the organization admin token instead of the default GITHUB_TOKEN
-          github-token: ${{ secrets.ORG_ADMIN_TOKEN }}
+          # Use the GitHub App token instead of PAT
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const appId = '${{ steps.parse.outputs.APPLICATION_ID }}';
             const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
@@ -256,7 +264,8 @@ jobs:
       - name: Add comment to issue
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Use the GitHub App token here as well
+          github-token: ${{ steps.generate_token.outputs.token }}
           script: |
             const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
             const subTeamName = '${{ steps.parse.outputs.SUB_TEAM }}';
