@@ -32,21 +32,21 @@ jobs:
           echo "TEAM_NAME=$TEAM_NAME" >> $GITHUB_OUTPUT
           
           # Extract team members and convert to array format
-          TEAM_MEMBERS=$(grep -A 10 "### Team Members" issue_body.txt | tail -n +2 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
+          TEAM_MEMBERS=$(grep -A 10 "### Team Members" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
           echo "TEAM_MEMBERS=$TEAM_MEMBERS" >> $GITHUB_OUTPUT
           
           SUB_TEAM=$(grep -A 2 "### Sub-Team Name" issue_body.txt | tail -n 1 | xargs || echo "")
           echo "SUB_TEAM=$SUB_TEAM" >> $GITHUB_OUTPUT
           
           # Extract sub-team members and convert to array format
-          SUB_TEAM_MEMBERS=$(grep -A 10 "### Sub-Team Members" issue_body.txt | tail -n +2 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
+          SUB_TEAM_MEMBERS=$(grep -A 10 "### Sub-Team Members" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
           echo "SUB_TEAM_MEMBERS=$SUB_TEAM_MEMBERS" >> $GITHUB_OUTPUT
           
           PERMISSION_LEVEL=$(grep -A 2 "### Team Permission Level" issue_body.txt | tail -n 1 | xargs || echo "read")
           echo "PERMISSION_LEVEL=$PERMISSION_LEVEL" >> $GITHUB_OUTPUT
           
           # Extract repositories and convert to array format
-          REPO_ASSETS=$(grep -A 10 "### Repository Assets" issue_body.txt | tail -n +2 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
+          REPO_ASSETS=$(grep -A 10 "### Repository Assets" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
           echo "REPO_ASSETS=$REPO_ASSETS" >> $GITHUB_OUTPUT
           
           # For debugging
@@ -103,7 +103,8 @@ jobs:
         id: manage-teams
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Use the organization admin token instead of the default GITHUB_TOKEN
+          github-token: ${{ secrets.ORG_ADMIN_TOKEN }}
           script: |
             const appId = '${{ steps.parse.outputs.APPLICATION_ID }}';
             const teamName = '${{ steps.parse.outputs.TEAM_NAME }}';
@@ -113,7 +114,13 @@ jobs:
             const permissionLevel = '${{ steps.parse.outputs.PERMISSION_LEVEL }}';
             const repoAssets = ${{ steps.parse.outputs.REPO_ASSETS }};
             
-            const orgName = 'KasdalOrg'; // Replace with your org name
+            const orgName = 'KasdalOrg'; // Your organization name
+            
+            // Debug information
+            console.log(`Organization: ${orgName}`);
+            console.log(`Team Name: ${teamName}`);
+            console.log(`Team Members: ${JSON.stringify(teamMembers)}`);
+            console.log(`Repositories: ${JSON.stringify(repoAssets)}`);
             
             // Function to create a team
             async function createTeam(name, description) {
@@ -125,6 +132,7 @@ jobs:
                   description: description,
                   privacy: 'closed'
                 });
+                console.log(`Team created successfully: ${name}`);
                 return response.data;
               } catch (error) {
                 console.log(`Error creating team ${name}: ${error.message}`);
@@ -137,6 +145,7 @@ jobs:
                     });
                     const existingTeam = teams.data.find(team => team.name === name);
                     if (existingTeam) {
+                      console.log(`Found existing team: ${existingTeam.name}`);
                       return existingTeam;
                     }
                   } catch (e) {
@@ -158,6 +167,7 @@ jobs:
                     username: username,
                     role: 'member'
                   });
+                  console.log(`Successfully added ${username} to team ${teamSlug}`);
                 } catch (error) {
                   console.log(`Error adding ${username} to team: ${error.message}`);
                 }
@@ -167,14 +177,17 @@ jobs:
             // Function to set repository permissions for a team
             async function setRepoPermissions(teamSlug, repoName, permission) {
               try {
-                console.log(`Setting ${permission} permission for team ${teamSlug} on repo ${repoName}...`);
+                let [owner, repo] = repoName.includes('/') ? repoName.split('/') : [orgName, repoName];
+                console.log(`Setting ${permission} permission for team ${teamSlug} on repo ${owner}/${repo}...`);
+                
                 await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
                   org: orgName,
                   team_slug: teamSlug,
-                  owner: repoName.split('/')[0] || orgName,
-                  repo: repoName.split('/')[1] || repoName,
+                  owner: owner,
+                  repo: repo,
                   permission: permission
                 });
+                console.log(`Successfully set ${permission} permission for team ${teamSlug} on repo ${owner}/${repo}`);
               } catch (error) {
                 console.log(`Error setting repo permissions: ${error.message}`);
               }
@@ -184,19 +197,23 @@ jobs:
             try {
               // Create main team
               const teamDescription = `Team for ${appId} (${teamName})`;
+              console.log(`Attempting to create/find team: ${teamName}`);
               const team = await createTeam(teamName, teamDescription);
               
               // Add members to main team
+              console.log(`Adding members to team ${teamName}`);
               await addTeamMembers(team.slug, teamMembers);
               
               // Create sub-team if provided
               let subTeam = null;
               if (subTeamName && subTeamName.trim() !== '') {
                 const subTeamDescription = `Sub-team for ${appId} (${subTeamName})`;
+                console.log(`Attempting to create/find sub-team: ${subTeamName}`);
                 subTeam = await createTeam(subTeamName, subTeamDescription);
                 
                 // Add members to sub-team
                 if (subTeamMembers && subTeamMembers.length > 0) {
+                  console.log(`Adding members to sub-team ${subTeamName}`);
                   await addTeamMembers(subTeam.slug, subTeamMembers);
                 }
                 
@@ -208,12 +225,14 @@ jobs:
                     team_slug: subTeam.slug,
                     parent_team_id: team.id
                   });
+                  console.log(`Successfully set parent-child relationship`);
                 } catch (error) {
                   console.log(`Error setting parent team: ${error.message}`);
                 }
               }
               
               // Set repository permissions for team
+              console.log(`Setting repository permissions for ${teamName}`);
               for (const repo of repoAssets) {
                 await setRepoPermissions(team.slug, repo, permissionLevel);
                 
