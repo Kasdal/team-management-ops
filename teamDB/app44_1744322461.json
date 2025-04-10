@@ -1,0 +1,12 @@
+{
+  "application_id": "app44",
+  "application_tier": "Tier1",
+  "team_name": "test",
+  "team_members": ["Kasdal"],
+  "sub_team": "testers",
+  "sub_team_members": ["Kasdal"],
+  "permission_level": "admin",
+  "repo_assets": ["KasdalOrg/test-repo"],
+  "created_at": "2025-04-10T22:01:01Z",
+  "issue_number": "10"
+}
