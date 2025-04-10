@@ -31,31 +31,31 @@ jobs:
           
           # Parse fields from issue body
           APPLICATION_ID=$(grep -A 2 "### Application ID" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
-          echo "APPLICATION_ID=$APPLICATION_ID" >> $GITHUB_OUTPUT
+          echo "APPLICATION_ID=${APPLICATION_ID}" >> $GITHUB_OUTPUT
           
           APPLICATION_TIER=$(grep -A 2 "### Application Tier" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
-          echo "APPLICATION_TIER=$APPLICATION_TIER" >> $GITHUB_OUTPUT
+          echo "APPLICATION_TIER=${APPLICATION_TIER}" >> $GITHUB_OUTPUT
           
           TEAM_NAME=$(grep -A 2 "### Team Name" issue_body.txt | tail -n 1 | xargs || echo "Unknown")
-          echo "TEAM_NAME=$TEAM_NAME" >> $GITHUB_OUTPUT
+          echo "TEAM_NAME=${TEAM_NAME}" >> $GITHUB_OUTPUT
           
           # Extract team members and convert to array format
           TEAM_MEMBERS=$(grep -A 10 "### Team Members" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
-          echo "TEAM_MEMBERS=$TEAM_MEMBERS" >> $GITHUB_OUTPUT
+          echo "TEAM_MEMBERS=${TEAM_MEMBERS}" >> $GITHUB_OUTPUT
           
           SUB_TEAM=$(grep -A 2 "### Sub-Team Name" issue_body.txt | tail -n 1 | xargs || echo "")
-          echo "SUB_TEAM=$SUB_TEAM" >> $GITHUB_OUTPUT
+          echo "SUB_TEAM=${SUB_TEAM}" >> $GITHUB_OUTPUT
           
           # Extract sub-team members and convert to array format
           SUB_TEAM_MEMBERS=$(grep -A 10 "### Sub-Team Members" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
-          echo "SUB_TEAM_MEMBERS=$SUB_TEAM_MEMBERS" >> $GITHUB_OUTPUT
+          echo "SUB_TEAM_MEMBERS=${SUB_TEAM_MEMBERS}" >> $GITHUB_OUTPUT
           
           PERMISSION_LEVEL=$(grep -A 2 "### Team Permission Level" issue_body.txt | tail -n 1 | xargs || echo "read")
-          echo "PERMISSION_LEVEL=$PERMISSION_LEVEL" >> $GITHUB_OUTPUT
+          echo "PERMISSION_LEVEL=${PERMISSION_LEVEL}" >> $GITHUB_OUTPUT
           
           # Extract repositories and convert to array format
           REPO_ASSETS=$(grep -A 10 "### Repository Assets" issue_body.txt | tail -n +3 | sed '/^$/d' | sed '/^###/,$d' | jq -R -s 'split("\n") | map(select(length > 0))' || echo "[]")
-          echo "REPO_ASSETS=$REPO_ASSETS" >> $GITHUB_OUTPUT
+          echo "REPO_ASSETS=${REPO_ASSETS}" >> $GITHUB_OUTPUT
           
           # For debugging
           echo "Parsed fields:"
@@ -90,7 +90,7 @@ jobs:
           # Create filename using application ID and timestamp
           TIMESTAMP=$(date +%s)
           FILENAME="${{ steps.parse.outputs.APPLICATION_ID }}_${TIMESTAMP}.json"
-          echo "FILENAME=$FILENAME" >> $GITHUB_OUTPUT
+          echo "FILENAME=${FILENAME}" >> $GITHUB_OUTPUT
           
           # Save JSON to teamDB folder
           mkdir -p teamDB
