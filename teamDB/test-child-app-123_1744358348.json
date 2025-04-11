@@ -1,0 +1,12 @@
+{
+  "application_id": "test-child-app-123",
+  "application_tier": "Tier2",
+  "team_name": "test-child-team-123",
+  "team_members": ["Kasdal"],
+  "sub_team": "test-child-subteam-123",
+  "sub_team_members": ["Kasdal"],
+  "permission_level": "write",
+  "repo_assets": ["KasdalOrg/team-management-ops"],
+  "created_at": "2025-04-11T07:59:08Z",
+  "issue_number": "12"
+}
