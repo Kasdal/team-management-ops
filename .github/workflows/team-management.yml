@@ -178,12 +178,34 @@ jobs:
             const repoAssets = JSON.parse('${{ steps.parse.outputs.REPO_ASSETS }}');
             
             const orgName = 'KasdalOrg'; // Your organization name
+            const parentTeamName = 'all-projects'; // Parent team for all teams
             
             // Debug information
             console.log(`Organization: ${orgName}`);
             console.log(`Team Name: ${teamName}`);
             console.log(`Team Members: ${JSON.stringify(teamMembers)}`);
             console.log(`Repositories: ${JSON.stringify(repoAssets)}`);
+            console.log(`Parent Team: ${parentTeamName}`);
+            
+            // Function to get a team by name
+            async function getTeamByName(name) {
+              try {
+                console.log(`Looking for team: ${name}`);
+                const teams = await github.rest.teams.list({
+                  org: orgName
+                });
+                const team = teams.data.find(t => t.name === name);
+                if (team) {
+                  console.log(`Found team: ${name}, id: ${team.id}`);
+                  return team;
+                }
+                console.log(`Team not found: ${name}`);
+                return null;
+              } catch (error) {
+                console.log(`Error finding team ${name}: ${error.message}`);
+                return null;
+              }
+            }
             
             // Function to create a team
             async function createTeam(name, description) {
@@ -257,8 +279,35 @@ jobs:
               }
             }
             
+            // Function to set parent team
+            async function setParentTeam(childTeamSlug, parentTeamId) {
+              try {
+                console.log(`Setting parent team (ID: ${parentTeamId}) for team ${childTeamSlug}...`);
+                await github.rest.teams.updateInOrg({
+                  org: orgName,
+                  team_slug: childTeamSlug,
+                  parent_team_id: parentTeamId
+                });
+                console.log(`Successfully set parent-child relationship`);
+                return true;
+              } catch (error) {
+                console.log(`Error setting parent team: ${error.message}`);
+                return false;
+              }
+            }
+            
             // Main execution
             try {
+              // Find the all-projects parent team
+              console.log(`Looking for parent team: ${parentTeamName}`);
+              const parentTeam = await getTeamByName(parentTeamName);
+              
+              if (!parentTeam) {
+                console.log(`Parent team '${parentTeamName}' not found. Creating teams without a parent.`);
+              } else {
+                console.log(`Found parent team: ${parentTeamName} (ID: ${parentTeam.id})`);
+              }
+              
               // Create main team
               const teamDescription = `Team for ${appId} (${teamName})`;
               console.log(`Attempting to create/find team: ${teamName}`);
@@ -267,6 +316,11 @@ jobs:
               // Add members to main team
               console.log(`Adding members to team ${teamName}`);
               await addTeamMembers(team.slug, teamMembers);
+              
+              // Set this team as a child of all-projects
+              if (parentTeam) {
+                await setParentTeam(team.slug, parentTeam.id);
+              }
               
               // Create sub-team if provided
               let subTeam = null;
@@ -281,18 +335,8 @@ jobs:
                   await addTeamMembers(subTeam.slug, subTeamMembers);
                 }
                 
-                // Set parent team (if API supports it)
-                try {
-                  console.log(`Setting ${teamName} as parent team for ${subTeamName}...`);
-                  await github.rest.teams.updateInOrg({
-                    org: orgName,
-                    team_slug: subTeam.slug,
-                    parent_team_id: team.id
-                  });
-                  console.log(`Successfully set parent-child relationship`);
-                } catch (error) {
-                  console.log(`Error setting parent team: ${error.message}`);
-                }
+                // Set parent team (main team, not all-projects)
+                await setParentTeam(subTeam.slug, team.id);
               }
               
               // Set repository permissions for team
@@ -339,6 +383,7 @@ jobs:
               ${subTeamName ? `- Sub-team **${subTeamName}** has been created or updated` : ''}
               - Team data saved to \`teamDB/${filename}\`
               - Repository permissions have been set according to your request
+              - Team is now a child of the **all-projects** team in the organization
               
               You can verify the teams and their members in the [KasdalOrg Teams page](https://github.com/orgs/KasdalOrg/teams).
               
