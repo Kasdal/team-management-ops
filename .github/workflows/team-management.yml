@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
         
       # Add GitHub App authentication using official GitHub action
       - name: Generate a token
@@ -105,20 +107,50 @@ jobs:
           FILENAME="${{ steps.parse.outputs.APPLICATION_ID }}_${TIMESTAMP}.json"
           echo "FILENAME=${FILENAME}" >> $GITHUB_OUTPUT
           
-          # Save JSON to teamDB folder
+          # Ensure teamDB directory exists
           mkdir -p teamDB
-          cp team_data.json "teamDB/$FILENAME"
+          cp team_data.json "teamDB/${FILENAME}"
           
           # View contents for verification
-          cat "teamDB/$FILENAME"
+          cat "teamDB/${FILENAME}"
       
       - name: Commit team data to repository
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
+          # Configure git with token authentication
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          git add teamDB/
-          git commit -m "Add team data for ${{ steps.parse.outputs.APPLICATION_ID }}"
-          git push
+          
+          # Set up authentication using the token
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git
+          
+          # Ensure the teamDB directory exists
+          mkdir -p teamDB
+          
+          # Check if there are changes to commit
+          if [[ $(git status --porcelain teamDB/) ]]; then
+            echo "Changes detected in teamDB folder, committing changes..."
+            git add teamDB/
+            git commit -m "Add team data for ${{ steps.parse.outputs.APPLICATION_ID }}"
+            
+            # Push with error handling
+            echo "Pushing changes to repository..."
+            if git push; then
+              echo "Successfully pushed team data to repository"
+            else
+              echo "Failed to push changes. Pulling latest changes and trying again..."
+              git pull --rebase
+              if git push; then
+                echo "Successfully pushed team data after rebase"
+              else
+                echo "Failed to push team data after rebase"
+                exit 1
+              fi
+            fi
+          else
+            echo "No changes detected in teamDB folder"
+          fi
       
       # Add debugging step to check token
       - name: Debug token
