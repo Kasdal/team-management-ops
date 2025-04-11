@@ -178,31 +178,35 @@ jobs:
             const repoAssets = JSON.parse('${{ steps.parse.outputs.REPO_ASSETS }}');
             
             const orgName = 'KasdalOrg'; // Your organization name
-            const parentTeamName = 'all-projects'; // Parent team for all teams
+            const parentTeamSlug = 'all-projects'; // Parent team for all teams
             
             // Debug information
             console.log(`Organization: ${orgName}`);
             console.log(`Team Name: ${teamName}`);
             console.log(`Team Members: ${JSON.stringify(teamMembers)}`);
             console.log(`Repositories: ${JSON.stringify(repoAssets)}`);
-            console.log(`Parent Team: ${parentTeamName}`);
+            console.log(`Parent Team Slug: ${parentTeamSlug}`);
             
-            // Function to get a team by name
-            async function getTeamByName(name) {
+            // Function to get a team by slug
+            async function getTeamBySlug(slug) {
               try {
-                console.log(`Looking for team: ${name}`);
-                const teams = await github.rest.teams.list({
-                  org: orgName
+                console.log(`Looking for team by slug: ${slug}`);
+                // Use the getByName endpoint (which actually uses slug)
+                const response = await github.rest.teams.getByName({
+                  org: orgName,
+                  team_slug: slug
                 });
-                const team = teams.data.find(t => t.name === name);
-                if (team) {
-                  console.log(`Found team: ${name}, id: ${team.id}`);
-                  return team;
+                
+                if (response.status === 200) {
+                  console.log(`Found team with slug: ${slug}, id: ${response.data.id}`);
+                  return response.data;
                 }
-                console.log(`Team not found: ${name}`);
-                return null;
               } catch (error) {
-                console.log(`Error finding team ${name}: ${error.message}`);
+                if (error.status === 404) {
+                  console.log(`Team with slug '${slug}' not found.`);
+                } else {
+                  console.log(`Error getting team by slug ${slug}: ${error.message}`);
+                }
                 return null;
               }
             }
@@ -217,24 +221,18 @@ jobs:
                   description: description,
                   privacy: 'closed'
                 });
-                console.log(`Team created successfully: ${name}`);
+                console.log(`Team created successfully: ${name} with slug: ${response.data.slug}`);
                 return response.data;
               } catch (error) {
                 console.log(`Error creating team ${name}: ${error.message}`);
                 // Check if team already exists
                 if (error.status === 422) {
-                  console.log(`Team ${name} might already exist, attempting to fetch...`);
-                  try {
-                    const teams = await github.rest.teams.list({
-                      org: orgName
-                    });
-                    const existingTeam = teams.data.find(team => team.name === name);
-                    if (existingTeam) {
-                      console.log(`Found existing team: ${existingTeam.name}`);
-                      return existingTeam;
-                    }
-                  } catch (e) {
-                    console.log(`Failed to fetch existing teams: ${e.message}`);
+                  console.log(`Team ${name} might already exist, attempting to fetch by slug...`);
+                  // Convert team name to slug format
+                  const possibleSlug = name.toLowerCase().replace(/\s+/g, '-');
+                  const existingTeam = await getTeamBySlug(possibleSlug);
+                  if (existingTeam) {
+                    return existingTeam;
                   }
                 }
                 throw error;
@@ -265,14 +263,25 @@ jobs:
                 let [owner, repo] = repoName.includes('/') ? repoName.split('/') : [orgName, repoName];
                 console.log(`Setting ${permission} permission for team ${teamSlug} on repo ${owner}/${repo}...`);
                 
-                await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
-                  org: orgName,
-                  team_slug: teamSlug,
-                  owner: owner,
-                  repo: repo,
-                  permission: permission
-                });
-                console.log(`Successfully set ${permission} permission for team ${teamSlug} on repo ${owner}/${repo}`);
+                try {
+                  // First check if repo exists and is accessible
+                  await github.rest.repos.get({
+                    owner: owner,
+                    repo: repo
+                  });
+                  
+                  // Then add team to repo with permissions
+                  await github.rest.teams.addOrUpdateRepoPermissionsInOrg({
+                    org: orgName,
+                    team_slug: teamSlug,
+                    owner: owner,
+                    repo: repo,
+                    permission: permission
+                  });
+                  console.log(`Successfully set ${permission} permission for team ${teamSlug} on repo ${owner}/${repo}`);
+                } catch (repoError) {
+                  console.log(`Error accessing repository ${owner}/${repo}: ${repoError.message}`);
+                }
               } catch (error) {
                 console.log(`Error setting repo permissions: ${error.message}`);
                 console.log(error);
@@ -298,14 +307,24 @@ jobs:
             
             // Main execution
             try {
-              // Find the all-projects parent team
-              console.log(`Looking for parent team: ${parentTeamName}`);
-              const parentTeam = await getTeamByName(parentTeamName);
+              // Find the all-projects parent team using slug
+              console.log(`Looking for parent team by slug: ${parentTeamSlug}`);
+              const parentTeam = await getTeamBySlug(parentTeamSlug);
               
+              let parentTeamId = null;
               if (!parentTeam) {
-                console.log(`Parent team '${parentTeamName}' not found. Creating teams without a parent.`);
+                console.log(`Parent team with slug '${parentTeamSlug}' not found. Creating parent team.`);
+                try {
+                  // Create the parent team if it doesn't exist
+                  const createdParentTeam = await createTeam('All Projects', 'Parent team for all projects');
+                  parentTeamId = createdParentTeam.id;
+                  console.log(`Created parent team 'All Projects' with ID: ${parentTeamId}`);
+                } catch (createError) {
+                  console.log(`Failed to create parent team: ${createError.message}`);
+                }
               } else {
-                console.log(`Found parent team: ${parentTeamName} (ID: ${parentTeam.id})`);
+                console.log(`Found parent team: ${parentTeam.name} (ID: ${parentTeam.id})`);
+                parentTeamId = parentTeam.id;
               }
               
               // Create main team
@@ -318,8 +337,9 @@ jobs:
               await addTeamMembers(team.slug, teamMembers);
               
               // Set this team as a child of all-projects
-              if (parentTeam) {
-                await setParentTeam(team.slug, parentTeam.id);
+              if (parentTeamId) {
+                console.log(`Setting ${team.slug} as child of team ID: ${parentTeamId}`);
+                await setParentTeam(team.slug, parentTeamId);
               }
               
               // Create sub-team if provided
@@ -335,8 +355,11 @@ jobs:
                   await addTeamMembers(subTeam.slug, subTeamMembers);
                 }
                 
-                // Set parent team (main team, not all-projects)
-                await setParentTeam(subTeam.slug, team.id);
+                // Set main team as parent of sub-team
+                if (team.id) {
+                  console.log(`Setting ${team.name} as parent of ${subTeam.name}`);
+                  await setParentTeam(subTeam.slug, team.id);
+                }
               }
               
               // Set repository permissions for team
@@ -354,7 +377,8 @@ jobs:
                 teamId: team.id,
                 teamSlug: team.slug,
                 subTeamId: subTeam ? subTeam.id : null,
-                subTeamSlug: subTeam ? subTeam.slug : null
+                subTeamSlug: subTeam ? subTeam.slug : null,
+                parentTeamId: parentTeamId
               };
             } catch (error) {
               console.log(`Main execution error: ${error.message}`);
